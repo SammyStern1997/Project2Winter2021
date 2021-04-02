@@ -15,10 +15,11 @@ COURSES_PATH = '/Desktop/507/Project2Winter2021'
 CACHE_FILE_NAME = 'cacheSI_Scrape.json'
 CACHE_FILE_NAME_API = "cache.json"
 CACHE_DICT = {}
+CACHE_DICT_API = {}
 
 headers = {'User-Agent': 'UMSI 507 Course Project - Python Web Scraping','From': 'sternsams@umich.edu','Course-Info': 'https://www.si.umich.edu/programs/courses/507'}
 
-def load_cache():
+def load_cache(cache_file):
     '''Load cache from cache file for api pull
     
     Parameters
@@ -32,7 +33,7 @@ def load_cache():
     '''
 
     try:
-        cache_file = open(CACHE_FILE_NAME, 'r')
+        cache_file = open(cache_file, 'r')
         cache_file_contents = cache_file.read()
         cache = json.loads(cache_file_contents)
         cache_file.close()
@@ -40,27 +41,27 @@ def load_cache():
         cache = {}
     return cache
 
-def load_cache_api():
-    '''Load cache from cache file for api pull
+# def load_cache_api():
+#     '''Load cache from cache file for api pull
     
-    Parameters
-    ---------
-    None
+#     Parameters
+#     ---------
+#     None
     
-    Returns
-    -------
-    dict
-        cache if it exists, empty cache otherwise.
-    '''
+#     Returns
+#     -------
+#     dict
+#         cache if it exists, empty cache otherwise.
+#     '''
 
-    try:
-        cache_file = open(CACHE_FILE_NAME_API, 'r')
-        cache_file_contents = cache_file.read()
-        cache = json.loads(cache_file_contents)
-        cache_file.close()
-    except:
-        cache = {}
-    return cache
+#     try:
+#         cache_file = open(CACHE_FILE_NAME_API, 'r')
+#         cache_file_contents = cache_file.read()
+#         cache = json.loads(cache_file_contents)
+#         cache_file.close()
+#     except:
+#         cache = {}
+#     return cache
 
 def save_cache(cache):
     '''Save webscraping cache in file named under var CACHE_FILE_NAME
@@ -80,7 +81,7 @@ def save_cache(cache):
     cache_file.write(contents_to_write)
     cache_file.close()
 
-def save_cache_api(cache_dict):
+def save_cache_api(cache):
     ''' saves the current state of the cache to disk
     Parameters
     ----------
@@ -90,11 +91,11 @@ def save_cache_api(cache_dict):
     -------
     None
     '''
-    dumped_json_cache = json.dumps(cache_dict)
+    dumped_json_cache = json.dumps(cache)
     fw = open(CACHE_FILE_NAME_API,"w")
     fw.write(dumped_json_cache)
-    fw.close()
-
+    fw.close() 
+    
 def make_url_request_using_cache(url, cache):
     '''Check if cache exists, otherwises fetch data
     
@@ -137,9 +138,8 @@ def make_request(baseurl, params):
         the data returned from making the request in the form of 
         a dictionary
     '''
-    response = requests.get(baseurl, params)
-    results_object = response.json()
-    return results_object
+    response = requests.get(baseurl, params=params)
+    return response.json()
 
 class NationalSite:
     '''a national site
@@ -292,7 +292,7 @@ def get_nearby_places(site_object):
     dict
         a converted API return from MapQuest API
     '''
-    url = "http://www.mapquestapi.com/search/v2/radius"
+    baseurl = "http://www.mapquestapi.com/search/v2/radius"
     params = {
         'key': secrets.MQ_API_KEY,
         'origin': site_object.zipcode,
@@ -301,19 +301,37 @@ def get_nearby_places(site_object):
         'ambiguities': 'ignore',
         'outFormat': 'json'
     }
-    cache = load_cache_api()
-    if cache:
-        if cache['origin']['postalCode'] == site_object.zipcode:
-            print("Using cache")
-        else:
-            save_cache_api(make_request(url, params))
-            print("Fetching")
-            cache = load_cache_api()
+    request_key = construct_unique_key(baseurl, params)
+    if request_key in CACHE_DICT_API.keys():
+        print("Using cache")
+        return CACHE_DICT_API[request_key]
     else:
-        save_cache_api(make_request(url, params))
         print("Fetching")
-        cache = load_cache_api()
-    return cache
+        CACHE_DICT_API[request_key] = make_request(baseurl, params)
+        save_cache_api(CACHE_DICT_API)
+        return CACHE_DICT_API[request_key]
+
+def construct_unique_key(baseurl, params):
+    ''' constructs a key that is guaranteed to uniquely and 
+    repeatably identify an API request by its baseurl and params
+    Parameters
+    ----------
+    baseurl: string
+        The URL for the API endpoint
+    params: dictionary
+        A dictionary of param: param_value pairs
+    Returns
+    -------
+    string
+        the unique key as a string
+    '''
+    param_strings = []
+    connector = '_'
+    for k in params.keys():
+        param_strings.append(f'{k}_{params[k]}')
+    param_strings.sort()
+    unique_key = baseurl + connector +  connector.join(param_strings)
+    return unique_key
 
 def print_ns(state, ns_sites):
     '''Print out national site inofrmation from a state
@@ -336,7 +354,6 @@ def print_ns(state, ns_sites):
     for i in range(len(ns_sites)):
         print(f"[{i+1}] {ns_sites[i].info()}")
 
-    
 if __name__ == "__main__":
     # state = input("""Enter a state name (e.g. Michigan, michigan) or "exit": """)
     flag = False
@@ -347,7 +364,8 @@ if __name__ == "__main__":
         if state == "exit":
             quit()
 
-        CACHE_DICT = load_cache()
+        CACHE_DICT = load_cache(CACHE_FILE_NAME)
+        CACHE_DICT_API = load_cache(CACHE_FILE_NAME_API)
         state_urls = build_state_url_dict()
 
         if state.lower() not in state_urls.keys():
@@ -357,7 +375,6 @@ if __name__ == "__main__":
                 state = input("""Enter a state name (e.g. Michigan, michigan) or "exit": """)
                 if state.lower() in state_urls.keys(): break
                 if state.lower() =='exit': quit()
-        # flag=True
         
         state_link = state_urls[state.lower()]
         ns_sites = get_sites_for_state(state_link)
